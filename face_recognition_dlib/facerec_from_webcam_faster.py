@@ -2,20 +2,10 @@ import face_recognition
 import cv2
 import time
 
-# This is a demo of running face recognition on live video from your webcam. It's a little more complicated than the
-# other example, but it includes some basic performance tweaks to make things run a lot faster:
-#   1. Process each video frame at 1/4 resolution (though still display it at full resolution)
-#   2. Only detect faces in every other frame of video.
-
-# PLEASE NOTE: This example requires OpenCV (the `cv2` library) to be installed only to read from your webcam.
-# OpenCV is *not* required to use the face_recognition library. It's only required if you want to run this
-# specific demo. If you have trouble installing it, try any of the other demos that don't require it instead.
-
-# Get a reference to webcam #0 (the default one)
 video_capture = cv2.VideoCapture(0)
 
 # Load a sample picture and learn how to recognize it.
-duy_image = face_recognition.load_image_file("images/duy.jpg")
+duy_image = face_recognition.load_image_file("images/train_image.jpg")
 duy_face_encoding = face_recognition.face_encodings(duy_image)[0]
 
 # Create arrays of known face encodings and their names
@@ -23,17 +13,17 @@ known_face_encodings = [
     duy_face_encoding,
 ]
 known_face_names = [
-    "Trinh Phu Duy",
+    "Luu Duc Quyen",
 ]
 
 # Initialize some variables
 face_locations = []
 face_encodings = []
 face_names = []
+process_this_frame = True
 face_name_per_time = []
 loss = 0.0
 detect_name = ""
-process_this_frame = True
 is_detect = False
 sleep = False
 temp = 0
@@ -69,7 +59,8 @@ while True:
 
             face_names.append(name)
 
-    process_this_frame = not process_this_frame
+    # process_this_frame = not process_this_frame
+    # print(process_this_frame)
 
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
