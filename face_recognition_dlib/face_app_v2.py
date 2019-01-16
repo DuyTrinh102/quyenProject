@@ -1,8 +1,10 @@
+import random
 import tkinter as tk
 import cv2
 import time
 import PIL.Image
 import PIL.ImageTk
+import serial
 
 from tkinter import ttk
 from tkinter import filedialog
@@ -42,10 +44,16 @@ class InterfaceProgram:
 		self.is_detect = False
 		self.sleep = False
 		self.temp = 0
+		self.temp_list = []
 		self.new_time = time.time()
 		self.old_time = time.time()
 		self.process_this_frame = True
 		self.my_name = None
+		self.is_show = False
+
+		self.ser = serial.Serial('COM3', baudrate=112500, timeout=1)
+		self.ser.close()
+		self.ser.open()
 
 		self.video_source = video_source
 		# open video source (by default this will try to open the computer webcam)
@@ -107,7 +115,7 @@ class InterfaceProgram:
 				
 				name = "Unknown"
 				if self.is_status:
-					matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=0.5)
+					matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=0.4)
 					# If a match was found in known_face_encodings, just use the first one.
 					if True in matches:
 						first_match_index = matches.index(True)
@@ -118,8 +126,14 @@ class InterfaceProgram:
 				face_names.append(name)
 			if self.is_detect:
 				if len(face_names) > 1:
-					cv2.putText(frame, 'Only open the door with one face!', (50, 50), font, 1.0, (255, 0, 0), 1)
 					self.is_detect = False
+					self.is_show = True
+			if self.is_show:
+				if (self.new_time - self.old_time) < 4:
+					cv2.putText(frame, 'Only open the door with one face!', (50, 50), font, 1.0, (255, 0, 0), 1)
+				else:
+					self.is_show = False
+
 			temp = 0
 			for (top, right, bottom, left), name in zip(face_locations, face_names):
 				# Scale back up face locations since the frame we detected in was scaled to 1/4 size
@@ -151,9 +165,11 @@ class InterfaceProgram:
 						if self.detect_name in self.known_face_names:
 							cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
 							cv2.putText(frame, self.detect_name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
+							self.ser.write(b'open')
 						else:
 							cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (255, 0, 0), cv2.FILLED)
 							cv2.putText(frame, name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
+							self.ser.write(b'close')
 					else:
 						self.sleep = False
 						self.detect_name = "Unknown"
@@ -194,6 +210,38 @@ class InterfaceProgram:
 		# After it is called once, the update method will be automatically called every delay milliseconds
 		self.update_for_window2()
 
+	def add_owner_window(self):
+		self.window.after_cancel(self.after_job)
+		self.after_job = None
+		self.window2 = tk.Toplevel()
+		self.window2.wm_title("Huấn luyện máy học")
+		self.window2['padx'] = 5
+		self.window2['pady'] = 5
+
+		cmd_frame = ttk.LabelFrame(self.window2, text="Commands", relief=tk.RIDGE)
+		cmd_frame.grid(row=1, column=1, sticky=tk.E + tk.W + tk.N + tk.S)
+
+		button_label = ttk.Label(cmd_frame, text="Chụp một hình khác để huấn luyện:")
+		button_label.grid(row=1, column=1, sticky=tk.W, pady=3)
+		# Button that lets the user take a snapshot
+		self.canvas = tk.Canvas(cmd_frame, width=self.vid.width, height=self.vid.height)
+		self.canvas.grid(row=2, column=1)
+		self.btn_snapshot = tk.Button(cmd_frame, text="Snapshot", width=30, bg="red", command=self.snapshot)
+		self.btn_snapshot.grid(row=2, column=1, sticky=tk.E + tk.W + tk.S)
+
+		cmd_frame2 = ttk.LabelFrame(self.window2, text="Commands", relief=tk.RIDGE)
+		cmd_frame2.grid(row=1, column=2, sticky=tk.E + tk.W + tk.N + tk.S)
+
+		self.my_name = ttk.Entry(cmd_frame2, width=40)
+		self.my_name.grid(row=2, column=1, sticky=tk.W, pady=3)
+		self.my_name.insert(tk.END, "Owner")
+
+		btn_save = tk.Button(cmd_frame2, text="Save", width=10, command=self.train_add)
+		btn_save.grid(row=1, column=1)
+
+		# After it is called once, the update method will be automatically called every delay milliseconds
+		self.update_for_window2()
+
 	def train_again(self):
 		self.window.after_cancel(self.after_job)
 		self.after_job = None
@@ -207,11 +255,28 @@ class InterfaceProgram:
 		self.update()
 		self.window2.destroy()
 
+	def train_add(self):
+		self.window.after_cancel(self.after_job)
+		self.after_job = None
+		known_face_encodings, known_face_names = train_image(image_path="images/train_image.jpg", name=self.my_name.get())
+		if not (known_face_encodings is None and known_face_names is None):
+			self.known_face_encodings.append(known_face_encodings[0])
+			self.known_face_names.append(known_face_names[0])
+
+		self.canvas = tk.Canvas(self.entry_frame, width=self.vid.width, height=self.vid.height)
+		self.canvas.grid(row=1, column=1)
+		self.update()
+		self.window2.destroy()
+
 	def open_door(self):
 		self.old_time = time.time()
 		if self.is_status:
 			self.is_detect = True
 		self.temp = 0
+
+	def quit_main_window(self):
+		self.window.destroy()
+		self.ser.close()
 
 	def create_widgets(self):
 		# Create some room around all the internal frames
@@ -232,11 +297,11 @@ class InterfaceProgram:
 		my_button = tk.Button(self.cmd_frame, text="Train again", width=20, command=self.train_again_window)
 		my_button.grid(row=2, column=2)
 
-		# button_label = tk.Label(self.cmd_frame, bg="yellow", text="Thêm chủ:")
-		# button_label.grid(row=1, column=3, sticky=tk.W, pady=3, padx=5)
-		#
-		# my_button = tk.Button(self.cmd_frame, width=20, text="Change owner", command=self.train_another_window)
-		# my_button.grid(row=1, column=4)
+		button_label = tk.Label(self.cmd_frame, bg="yellow", text="Thêm chủ:")
+		button_label.grid(row=1, column=3, sticky=tk.W, pady=3, padx=5)
+
+		my_button = tk.Button(self.cmd_frame, width=20, text="Add owner", command=self.add_owner_window)
+		my_button.grid(row=1, column=4)
 
 		# - - - - - - - - - - - - - - - - - - - - -
 		# The Data entry frame
@@ -257,7 +322,7 @@ class InterfaceProgram:
 
 		# - - - - - - - - - - - - - - - - - - - - -
 		# Quit button in the lower right corner
-		quit_button = ttk.Button(self.window, text="Quit", command=self.window.destroy)
+		quit_button = ttk.Button(self.window, text="Quit", command=self.quit_main_window)
 		quit_button.grid(row=1, column=3)
 
 
@@ -276,6 +341,7 @@ class MyVideoCapture:
 		ret = False
 		if self.vid.isOpened():
 			ret, frame = self.vid.read()
+			frame = cv2.flip(frame, 1)
 			if ret:
 				# Return a boolean success flag and the current frame converted to BGR
 				return (ret, cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
